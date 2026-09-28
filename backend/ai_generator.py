@@ -52,7 +52,7 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
     client = get_gemini_client()
     
     # Try gemini-2.5-flash first, fallback to gemini-1.5-flash if needed
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,

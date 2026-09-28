@@ -28,6 +28,19 @@ from backend.history_routes import history_bp
 load_dotenv()
 
 
+class PrefixMiddleware:
+    """Middleware to strip '/api' prefix if present so routes work seamlessly."""
+    def __init__(self, wsgi_app, prefix="/api"):
+        self.wsgi_app = wsgi_app
+        self.prefix = prefix
+
+    def __call__(self, environ, start_response):
+        path_info = environ.get("PATH_INFO", "")
+        if path_info.startswith(self.prefix):
+            environ["PATH_INFO"] = path_info[len(self.prefix):] or "/"
+        return self.wsgi_app(environ, start_response)
+
+
 def create_app(test_config=None):
     """
     Application factory for Flask app.
@@ -38,6 +51,7 @@ def create_app(test_config=None):
     else:
         app = Flask(__name__)
     CORS(app)
+    app.wsgi_app = PrefixMiddleware(app.wsgi_app)
     
     # Initialize SQLite database table if it doesn't exist
     create_table()
