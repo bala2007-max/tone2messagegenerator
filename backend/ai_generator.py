@@ -20,7 +20,8 @@ def get_gemini_client():
     Initializes and returns the Google GenAI Client using GEMINI_API_KEY from environment.
     Raises ValueError if the API key is not configured.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
+    raw_key = os.getenv("GEMINI_API_KEY", "")
+    api_key = raw_key.strip().strip("'\"")
     if not api_key or api_key == "your_api_key_here":
         raise ValueError(
             "GEMINI_API_KEY environment variable is missing or unconfigured. "
@@ -37,7 +38,7 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
         input_text (str): The raw text/intent provided by the user.
         message_type (str): 'Email' or 'Message'
         tone (str): Target tone
-        language (str): 'English' or 'Tamil'
+        language (str): 'English', 'Tamil', or 'Hindi'
         length (str): Output length preference
         
     Returns:

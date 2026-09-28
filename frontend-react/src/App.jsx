@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || "/api";
+const rawApiUrl = import.meta.env.VITE_API_URL || "/api";
+const API_URL = rawApiUrl.replace(/\/+$/, "");
 const initialForm = { input_text: "", message_type: "Email", tone: "Formal", language: "English", length: "Medium" };
 const options = {
   message_type: ["Email", "Message"],
@@ -18,7 +19,9 @@ const toneMeta = {
 async function request(path, init) {
   const response = await fetch(`${API_URL}${path}`, init);
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.success === false) throw new Error(payload.error || "Request failed.");
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.error || `Request failed (HTTP ${response.status})`);
+  }
   return payload;
 }
 
@@ -104,7 +107,7 @@ export default function App() {
         <section className="settings-card"><div className="card-title"><h2>Message settings</h2><p>Choose how your message should sound.</p></div><div className="form-grid"><Select label="Type" name="message_type" value={form.message_type} onChange={updateForm} values={options.message_type} /><Select label="Tone" name="tone" value={form.tone} onChange={updateForm} values={options.tone} /><Select label="Language" name="language" value={form.language} onChange={updateForm} values={options.language} /><Select label="Length" name="length" value={form.length} onChange={updateForm} values={options.length} /></div></section>
         <div className="actions"><button className="primary" onClick={generate} disabled={loading}>{loading ? <><span className="spinner" />Generating</> : "Generate message"}</button><button className="secondary" onClick={() => { setForm(initialForm); setOutput(""); setError(""); }}>Clear</button></div>
         {loading && !output && <section className="output-card output-skeleton" aria-label="Generating message" aria-busy="true"><div className="skeleton-heading" /><div className="skeleton-line wide" /><div className="skeleton-line" /><div className="skeleton-line medium" /><div className="skeleton-line short" /></section>}
-        {output && <section className={`output-card output-ready tone-${toneMeta[form.tone].color}`}><div className="output-heading"><div><p className="section-label">GENERATED OUTPUT</p><h2>Ready to send</h2></div><span>{toneMeta[form.tone].icon} {form.tone}</span></div><pre>{output}</pre><p className="character-count output-count">{output.length} characters</p><div className="output-footer"><button className="secondary" onClick={copyOutput}>Copy</button><button className="secondary" onClick={generate} disabled={loading}>Regenerate</button></div></section>}
+        {output && <section className={`output-card output-ready tone-${toneMeta[form.tone]?.color || "formal"}`}><div className="output-heading"><div><p className="section-label">GENERATED OUTPUT</p><h2>Ready to send</h2></div><span>{toneMeta[form.tone]?.icon || ""} {form.tone}</span></div><pre>{output}</pre><p className="character-count output-count">{output.length} characters</p><div className="output-footer"><button className="secondary" onClick={copyOutput}>Copy</button><button className="secondary" onClick={generate} disabled={loading}>Regenerate</button></div></section>}
       </> : <section className="history-panel"><div className="history-title"><div><p className="section-label">YOUR SAVED MESSAGES</p><h2>Generation history</h2></div><button className="secondary" onClick={() => fetchHistory()}>Refresh</button></div>{history.length === 0 ? <div className="empty-state"><span>◷</span><h3>No history yet</h3><p>Generated messages will be saved here for easy access.</p></div> : history.map((item) => <article className={`history-card tone-${toneMeta[item.tone]?.color || "formal"}`} key={item.id}><div className="history-card-top"><div className="badges"><span>{item.message_type}</span><span>{toneMeta[item.tone]?.icon} {item.tone}</span><span>{item.language}</span><span>{item.length}</span></div><small>{item.created_at}</small></div><p><strong>Original:</strong> {item.input_text}</p><pre>{item.generated_text}</pre><div className="output-footer"><button className="secondary" onClick={() => { setOutput(item.generated_text); setActiveTab("generator"); }}>Load output</button><button className="danger" onClick={() => deleteItem(item.id)}>Delete</button></div></article>)}</section>}
     </main>
     {(error || notice) && <div className={`toast ${error ? "toast-error" : "toast-success"}`} role="status"><span>{error ? "⚠" : "✓"}</span>{error || notice}</div>}

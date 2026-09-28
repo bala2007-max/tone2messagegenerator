@@ -65,6 +65,13 @@ def create_app(test_config=None):
         """
         Serves built React frontend files or API status.
         """
+        # Never serve HTML for API paths
+        if path.startswith("api/") or path == "api":
+            return jsonify({
+                "success": False,
+                "error": "Endpoint not found"
+            }), 404
+
         if app.static_folder and path and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
         if app.static_folder and os.path.exists(os.path.join(app.static_folder, "index.html")):

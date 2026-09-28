@@ -14,8 +14,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 def get_db_path():
     """
     Determines writable SQLite database file path.
-    Uses /tmp for Vercel serverless or read-only filesystems.
+    Uses DATABASE_PATH if provided, /tmp for Vercel, or local database directory.
     """
+    custom_path = os.environ.get("DATABASE_PATH")
+    if custom_path:
+        return custom_path
     if os.environ.get("VERCEL"):
         return "/tmp/tone_generator.db"
     try:
