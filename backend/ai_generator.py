@@ -4,6 +4,7 @@ Member 2 Module: LLM Integration using Google GenAI SDK.
 """
 
 import os
+import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -51,25 +52,38 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
     
     client = get_gemini_client()
     
-    # Use gemini-3.8-flash as recommended by Gemini API
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-    
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.7,
     )
     
-    try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=input_text,
-            config=config
-        )
-        
-        if not response or not response.text:
-            raise RuntimeError("Received empty response from Gemini API.")
-            
-        return response.text.strip()
-    except Exception as e:
-        # Re-raise with informative error message
-        raise RuntimeError(f"Gemini API Generation Error: {str(e)}")
+    # Priority list of models to fallback gracefully if a model has high demand (503) or is unavailable
+    configured_model = os.getenv("GEMINI_MODEL")
+    candidate_models = [configured_model] if configured_model else []
+    for candidate in ["gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]:
+        if candidate and candidate not in candidate_models:
+            candidate_models.append(candidate)
+    
+    last_error = None
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=input_text,
+                    config=config
+                )
+                
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                # If high demand (503) or rate limit, brief pause before retry or fallback
+                if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str) and attempt == 0:
+                    time.sleep(1)
+                    continue
+                # For 404 or persistent error, break to next candidate model
+                break
+                
+    raise RuntimeError(f"Gemini API Generation Error: {str(last_error)}")
