@@ -4,30 +4,60 @@ Member 2 Module: LLM Integration using Google GenAI SDK.
 """
 
 import os
+import sys
 import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+# Locate project directory
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+
+# Load environment variables: check project root first, then parent directory, then system
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
+load_dotenv(os.path.join(ROOT_DIR, "..", ".env"))
+load_dotenv()
+
 from backend.prompts import build_system_prompt
 
-# Load environment variables from .env file
-load_dotenv()
+# Currently supported and verified Gemini models for text generation
+DEFAULT_FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3-flash-preview",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash"
+]
 
 
 def get_gemini_client():
     """
     Initializes and returns the Google GenAI Client using GEMINI_API_KEY from environment.
-    Raises ValueError if the API key is not configured.
+    Raises ValueError if the API key is missing or unconfigured.
     """
     raw_key = os.getenv("GEMINI_API_KEY", "")
     api_key = raw_key.strip().strip("'\"")
     if not api_key or api_key == "your_api_key_here":
         raise ValueError(
-            "GEMINI_API_KEY environment variable is missing or unconfigured. "
-            "Please add a valid API key to your .env file."
+            "GEMINI_API_KEY is missing or unconfigured. "
+            "Please provide a valid Gemini API key in your .env file."
         )
     return genai.Client(api_key=api_key)
+
+
+def get_model_candidates():
+    """
+    Returns prioritized list of valid models to try.
+    Checks GEMINI_MODEL env var first, followed by verified supported fallback models.
+    """
+    configured = os.getenv("GEMINI_MODEL", "").strip().strip("'\"")
+    models = []
+    if configured:
+        models.append(configured)
+    for model in DEFAULT_FALLBACK_MODELS:
+        if model not in models:
+            models.append(model)
+    return models
 
 
 def generate_message(input_text: str, message_type: str, tone: str, language: str, length: str) -> str:
@@ -58,14 +88,9 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
         temperature=0.7,
     )
     
-    # Priority list of models to fallback gracefully if a model has high demand (503) or is unavailable
-    configured_model = os.getenv("GEMINI_MODEL")
-    candidate_models = [configured_model] if configured_model else []
-    for candidate in ["gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]:
-        if candidate and candidate not in candidate_models:
-            candidate_models.append(candidate)
-    
+    candidate_models = get_model_candidates()
     last_error = None
+    
     for model_name in candidate_models:
         for attempt in range(2):
             try:
@@ -80,11 +105,41 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
             except Exception as e:
                 last_error = e
                 err_str = str(e)
-                # If high demand (503) or rate limit, brief pause before retry or fallback
-                if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str) and attempt == 0:
-                    time.sleep(1)
-                    continue
-                # For 404 or persistent error, break to next candidate model
+                
+                # Check for Authentication errors (401 / 403)
+                if "401" in err_str or "403" in err_str or "API_KEY_INVALID" in err_str or "PERMISSION_DENIED" in err_str:
+                    raise ValueError(
+                        "Gemini API Authentication Failed: Invalid or unauthorized GEMINI_API_KEY. "
+                        "Please verify your API key in .env."
+                    )
+                
+                # Check for High Demand / Server Overload (503) or Rate Limit (429)
+                if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str):
+                    if attempt == 0:
+                        time.sleep(1)
+                        continue
+                    # On second attempt, fall through to next candidate model
+                    break
+                
+                # If model not found (404), break immediately to next model without retrying
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    break
+                    
+                # Other unexpected exceptions, break to next candidate model
                 break
                 
-    raise RuntimeError(f"Gemini API Generation Error: {str(last_error)}")
+    # If all candidate models were exhausted
+    err_msg = str(last_error) if last_error else "Unknown generation error"
+    if "404" in err_msg or "NOT_FOUND" in err_msg:
+        raise RuntimeError(
+            f"Gemini API Error (404 Not Found): The requested Gemini model was not found or is unavailable to this API key."
+        )
+    if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+        raise RuntimeError(
+            "Gemini API Rate Limit Exceeded: Free tier quota has been reached. Please wait a moment before trying again."
+        )
+    if "503" in err_msg or "UNAVAILABLE" in err_msg:
+        raise RuntimeError(
+            "Gemini API Service Unavailable: The model is currently experiencing high demand. Please try again shortly."
+        )
+    raise RuntimeError(f"Gemini API Generation Error: {err_msg}")

@@ -205,6 +205,17 @@ def create_app(test_config=None):
                 "success": False,
                 "error": str(ve)
             }), 400
+        except RuntimeError as re:
+            err_msg = str(re)
+            status_code = 500
+            if "Rate Limit" in err_msg or "429" in err_msg:
+                status_code = 429
+            elif "Service Unavailable" in err_msg or "503" in err_msg:
+                status_code = 503
+            return jsonify({
+                "success": False,
+                "error": err_msg
+            }), status_code
         except Exception as e:
             return jsonify({
                 "success": False,
