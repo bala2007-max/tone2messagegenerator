@@ -1,0 +1,21 @@
+# Environment variables
+.env
+frontend-react/.env
+frontend-react/node_modules/
+frontend-react/dist/
+
+# Database files
+*.db
+database/tone_generator.db
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
