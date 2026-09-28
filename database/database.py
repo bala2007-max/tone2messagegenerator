@@ -9,13 +9,38 @@ from datetime import datetime
 
 # Base directory for database file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DB_PATH = os.path.join(BASE_DIR, "tone_generator.db")
 
 
-def get_connection(db_path=DEFAULT_DB_PATH):
+def get_db_path():
+    """
+    Determines writable SQLite database file path.
+    Uses /tmp for Vercel serverless or read-only filesystems.
+    """
+    if os.environ.get("VERCEL"):
+        return "/tmp/tone_generator.db"
+    try:
+        os.makedirs(BASE_DIR, exist_ok=True)
+        test_file = os.path.join(BASE_DIR, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("1")
+        os.remove(test_file)
+        return os.path.join(BASE_DIR, "tone_generator.db")
+    except (IOError, OSError, PermissionError):
+        return "/tmp/tone_generator.db"
+
+
+DEFAULT_DB_PATH = get_db_path()
+
+
+def get_connection(db_path=None):
     """
     Establishes and returns a connection to the SQLite database.
     """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    dir_path = os.path.dirname(db_path)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
