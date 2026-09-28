@@ -5,7 +5,7 @@ Member 2 Module: Backend API & Service Integration.
 
 import os
 import sys
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -32,7 +32,11 @@ def create_app(test_config=None):
     """
     Application factory for Flask app.
     """
-    app = Flask(__name__)
+    dist_dir = os.path.join(ROOT_DIR, "frontend-react", "dist")
+    if os.path.exists(dist_dir):
+        app = Flask(__name__, static_folder=dist_dir, static_url_path="")
+    else:
+        app = Flask(__name__)
     CORS(app)
     
     # Initialize SQLite database table if it doesn't exist
@@ -40,6 +44,26 @@ def create_app(test_config=None):
     
     # Register blueprints
     app.register_blueprint(history_bp)
+    
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def serve_frontend(path):
+        """
+        Serves built React frontend files or API status.
+        """
+        if app.static_folder and path and os.path.exists(os.path.join(app.static_folder, path)):
+            return send_from_directory(app.static_folder, path)
+        if app.static_folder and os.path.exists(os.path.join(app.static_folder, "index.html")):
+            return send_from_directory(app.static_folder, "index.html")
+        if not path:
+            return jsonify({
+                "status": "healthy",
+                "service": "Tone-Based Email & Message Generator API"
+            }), 200
+        return jsonify({
+            "success": False,
+            "error": "Endpoint not found"
+        }), 404
     
     @app.route("/health", methods=["GET"])
     def health_check():
@@ -194,7 +218,7 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("FLASK_PORT", 5000))
-    debug = os.getenv("FLASK_DEBUG", "True").lower() in ("true", "1", "t")
+    port = int(os.getenv("PORT", os.getenv("FLASK_PORT", 5000)))
+    debug = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
     print(f"Starting Flask application server on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=debug)
