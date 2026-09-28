@@ -50,7 +50,47 @@ def create_app(test_config=None):
         app = Flask(__name__, static_folder=dist_dir, static_url_path="")
     else:
         app = Flask(__name__)
-    CORS(app)
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://tone2messagegenerator.onrender.com",
+    ]
+    custom_origins = os.getenv("ALLOWED_ORIGINS")
+    if custom_origins:
+        allowed_origins.extend([o.strip() for o in custom_origins.split(",") if o.strip()])
+
+    CORS(
+        app,
+        resources={
+            r"/*": {
+                "origins": allowed_origins,
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type", "Authorization", "Accept"],
+                "expose_headers": ["Content-Type"],
+                "supports_credentials": True,
+                "max_age": 86400
+            }
+        }
+    )
+
+    @app.after_request
+    def apply_cors_headers(response):
+        """Guarantee CORS headers on all responses, including errors and preflights."""
+        origin = request.headers.get("Origin")
+        if origin:
+            if (
+                origin in allowed_origins
+                or origin.endswith(".onrender.com")
+                or origin.endswith(".vercel.app")
+            ):
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+
     app.wsgi_app = PrefixMiddleware(app.wsgi_app)
     
     # Initialize SQLite database table if it doesn't exist
@@ -97,13 +137,15 @@ def create_app(test_config=None):
             "service": "Tone-Based Email & Message Generator API"
         }), 200
 
-    @app.route("/generate", methods=["POST"])
+    @app.route("/generate", methods=["POST", "OPTIONS"])
     def handle_generate():
         """
         POST /generate
         Generates email or message based on tone, language, and length settings,
         saves the result to SQLite history database, and returns formatted JSON response.
         """
+        if request.method == "OPTIONS":
+            return "", 204
         if not request.is_json:
             return jsonify({
                 "success": False,
