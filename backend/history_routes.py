@@ -15,12 +15,14 @@ from database.database import (
 history_bp = Blueprint("history", __name__)
 
 
-@history_bp.route("/history", methods=["GET"])
+@history_bp.route("/history", methods=["GET", "OPTIONS"])
 def handle_get_all_history():
     """
     GET /history
     Retrieves all generated message history records sorted by newest first.
     """
+    if request.method == "OPTIONS":
+        return "", 204
     try:
         tone = request.args.get("tone") or None
         message_type = request.args.get("type") or None
@@ -36,12 +38,31 @@ def handle_get_all_history():
         }), 500
 
 
-@history_bp.route("/history/<int:history_id>", methods=["GET"])
-def handle_get_history_by_id(history_id: int):
+@history_bp.route("/history/<int:history_id>", methods=["GET", "DELETE", "OPTIONS"])
+def handle_history_by_id(history_id: int):
     """
-    GET /history/<id>
-    Retrieves a single message history record by ID.
+    GET /history/<id> or DELETE /history/<id>
     """
+    if request.method == "OPTIONS":
+        return "", 204
+    if request.method == "DELETE":
+        try:
+            success = delete_history(history_id)
+            if not success:
+                return jsonify({
+                    "success": False,
+                    "error": "History record not found"
+                }), 404
+            return jsonify({
+                "success": True,
+                "message": "History record deleted successfully"
+            }), 200
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to delete history record: {str(e)}"
+            }), 500
+
     try:
         record = get_history_by_id(history_id)
         if not record:
@@ -61,37 +82,14 @@ def handle_get_history_by_id(history_id: int):
         }), 500
 
 
-@history_bp.route("/history/<int:history_id>", methods=["DELETE"])
-def handle_delete_history_by_id(history_id: int):
-    """
-    DELETE /history/<id>
-    Deletes a single message history record by ID.
-    """
-    try:
-        success = delete_history(history_id)
-        if not success:
-            return jsonify({
-                "success": False,
-                "error": "History record not found"
-            }), 404
-            
-        return jsonify({
-            "success": True,
-            "message": "History record deleted successfully"
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"Failed to delete history record: {str(e)}"
-        }), 500
-
-
-@history_bp.route("/history", methods=["DELETE"])
+@history_bp.route("/history", methods=["DELETE", "OPTIONS"])
 def handle_clear_all_history():
     """
     DELETE /history
     Clears all history records from the database.
     """
+    if request.method == "OPTIONS":
+        return "", 204
     try:
         deleted_count = clear_history()
         return jsonify({

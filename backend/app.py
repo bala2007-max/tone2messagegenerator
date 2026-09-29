@@ -50,9 +50,19 @@ def create_app(test_config=None):
         app = Flask(__name__, static_folder=dist_dir, static_url_path="")
     else:
         app = Flask(__name__)
+
+    # Match all localhost/127.0.0.1 ports (5173, 5174, 3000, etc.) as well as deployed domains
+    allowed_origin_patterns = [
+        r"^https?://localhost(:\d+)?$",
+        r"^https?://127\.0\.0\.1(:\d+)?$",
+        r"^https://.*\.onrender\.com$",
+        r"^https://.*\.vercel\.app$"
+    ]
     allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "https://tone2messagegenerator.onrender.com",
@@ -61,11 +71,25 @@ def create_app(test_config=None):
     if custom_origins:
         allowed_origins.extend([o.strip() for o in custom_origins.split(",") if o.strip()])
 
+    def is_origin_allowed(origin):
+        if not origin:
+            return False
+        if (
+            origin.startswith("http://localhost:")
+            or origin.startswith("http://127.0.0.1:")
+            or origin in ("http://localhost", "http://127.0.0.1")
+            or origin in allowed_origins
+            or origin.endswith(".onrender.com")
+            or origin.endswith(".vercel.app")
+        ):
+            return True
+        return False
+
     CORS(
         app,
         resources={
             r"/*": {
-                "origins": allowed_origins,
+                "origins": allowed_origin_patterns + allowed_origins,
                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                 "allow_headers": ["Content-Type", "Authorization", "Accept"],
                 "expose_headers": ["Content-Type"],
@@ -75,20 +99,28 @@ def create_app(test_config=None):
         }
     )
 
+    @app.before_request
+    def handle_preflight():
+        """Handle preflight OPTIONS request globally before route dispatch."""
+        if request.method == "OPTIONS":
+            origin = request.headers.get("Origin")
+            resp = app.make_default_options_response()
+            if is_origin_allowed(origin):
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+                resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
+                resp.headers["Access-Control-Allow-Credentials"] = "true"
+            return resp
+
     @app.after_request
     def apply_cors_headers(response):
         """Guarantee CORS headers on all responses, including errors and preflights."""
         origin = request.headers.get("Origin")
-        if origin:
-            if (
-                origin in allowed_origins
-                or origin.endswith(".onrender.com")
-                or origin.endswith(".vercel.app")
-            ):
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
-                response.headers["Access-Control-Allow-Credentials"] = "true"
+        if is_origin_allowed(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
         return response
 
     app.wsgi_app = PrefixMiddleware(app.wsgi_app)
@@ -243,12 +275,19 @@ def create_app(test_config=None):
             }), 200
 
         except ValueError as ve:
+            err_msg = str(ve)
+            raw_key = os.getenv("GEMINI_API_KEY", "")
+            if raw_key and raw_key in err_msg:
+                err_msg = err_msg.replace(raw_key, "[REDACTED]")
             return jsonify({
                 "success": False,
-                "error": str(ve)
+                "error": err_msg
             }), 400
         except RuntimeError as re:
             err_msg = str(re)
+            raw_key = os.getenv("GEMINI_API_KEY", "")
+            if raw_key and raw_key in err_msg:
+                err_msg = err_msg.replace(raw_key, "[REDACTED]")
             status_code = 500
             if "Rate Limit" in err_msg or "429" in err_msg:
                 status_code = 429
@@ -261,7 +300,7 @@ def create_app(test_config=None):
         except Exception as e:
             return jsonify({
                 "success": False,
-                "error": f"Generation failed: {str(e)}"
+                "error": "Failed to generate message due to a server error. Please try again shortly."
             }), 500
 
     @app.errorhandler(404)

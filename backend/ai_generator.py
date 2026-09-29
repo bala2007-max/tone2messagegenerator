@@ -21,10 +21,11 @@ load_dotenv()
 
 from backend.prompts import build_system_prompt
 
-# Currently supported and verified Gemini models for text generation
+# Currently supported and verified Gemini models prioritized for speed and availability
 DEFAULT_FALLBACK_MODELS = [
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3-flash-preview",
     "gemini-3.8-flash",
     "gemini-3.7-flash"
 ]
@@ -92,6 +93,7 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
     last_error = None
     
     for model_name in candidate_models:
+        # Try candidate model up to 2 times for transient errors
         for attempt in range(2):
             try:
                 response = client.models.generate_content(
@@ -113,19 +115,23 @@ def generate_message(input_text: str, message_type: str, tone: str, language: st
                         "Please verify your API key in .env."
                     )
                 
-                # Check for High Demand / Server Overload (503) or Rate Limit (429)
-                if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str):
-                    if attempt == 0:
-                        time.sleep(1)
-                        continue
-                    # On second attempt, fall through to next candidate model
+                # If quota exhausted (429), retrying the same model with 1s sleep won't help;
+                # immediately switch to the next fallback candidate model for instant speed.
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     break
                 
-                # If model not found (404), break immediately to next model without retrying
+                # For transient service overload (503 / UNAVAILABLE), retry once quickly then fall through
+                if "503" in err_str or "UNAVAILABLE" in err_str:
+                    if attempt == 0:
+                        time.sleep(0.5)
+                        continue
+                    break
+                
+                # If model not found or deprecated (404), switch immediately to next candidate
                 if "404" in err_str or "NOT_FOUND" in err_str:
                     break
                     
-                # Other unexpected exceptions, break to next candidate model
+                # Other unexpected exceptions, move to next candidate model
                 break
                 
     # If all candidate models were exhausted
